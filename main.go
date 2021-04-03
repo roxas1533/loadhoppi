@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 
@@ -175,15 +175,20 @@ func main() {
 				{Type: "protocol", Label: "ブラウザで開く", Arguments: d["url"]},
 			},
 		}
-		// err = notification.Push()
-		_ = notification
-		if err != nil {
-			panic(err)
+
+		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
+
+		if reflect.DeepEqual(log, sha1[:]) {
+			break
 		}
 		if i == 0 {
-			sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
-			fmt.Println(reflect.DeepEqual(log, sha1[:]))
+			file, err := os.Create("log.log")
+			if err != nil {
+				panic(err)
+			}
+			defer file.Close()
+			file.Write(sha1[:])
 		}
+		notification.Push()
 	}
-
 }
