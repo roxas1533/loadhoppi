@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
@@ -27,6 +28,15 @@ var JSESSIONID2 string
 
 var newsList []map[string]string
 
+func MessageErr(c string) {
+	notification := toast.Notification{
+		AppID:   "Hoppii通知君",
+		Title:   "エラー",
+		Message: c,
+	}
+	notification.Push()
+}
+
 func main() {
 	client := &http.Client{}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -35,6 +45,7 @@ func main() {
 
 	st, err := ioutil.ReadFile("login.txt")
 	if err != nil {
+		MessageErr("login.txt読み込みエラー")
 		panic(err)
 	}
 	StudentNumber := strings.Split(string(st), ",")[0]
@@ -42,6 +53,7 @@ func main() {
 
 	log, err := ioutil.ReadFile("log.log")
 	if err != nil {
+		MessageErr("log.log読み込みエラー")
 		panic(err)
 	}
 
@@ -106,6 +118,14 @@ func main() {
 			}
 		}
 	})
+	//エラーチェック
+	if RelayState == "" || SAMLResponse == "" {
+		MessageErr("パスワードが違います")
+		fmt.Println(resp.Header)
+		fmt.Println(body)
+		os.Exit(1)
+	}
+
 	//ハッシュデータをそのままPOSTする、shibsessionが得られる
 	data = url.Values{"SAMLResponse": {SAMLResponse}, "RelayState": {RelayState}}
 	req, _ = http.NewRequest("POST", "https://hoppii.hosei.ac.jp/Shibboleth.sso/SAML2/POST",
@@ -179,6 +199,15 @@ func main() {
 		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
 
 		if reflect.DeepEqual(log, sha1[:]) {
+			if i == 0 {
+				// notification := toast.Notification{
+				// 	AppID:   "Hoppii通知君",
+				// 	Title:   "なし",
+				// 	Message: "最新の状態です",
+				// }
+				// notification.Push()
+				fmt.Println("最新の状態です")
+			}
 			break
 		}
 		if i == 0 {
