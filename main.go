@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -27,6 +28,145 @@ var shibsessionValue string
 var JSESSIONID2 string
 
 var newsList []map[string]string
+var notiList []map[string]string
+var log []byte
+
+func ReadNotification(client *http.Client, u *url.URL) {
+	req, _ := http.NewRequest("GET", "https://hoppii.hosei.ac.jp:443/portal/tool/474a4523-3b7b-42ac-a461-d8753982d3b6?panel=Main", nil)
+	cookies := []*http.Cookie{
+		{Name: "AWSALB", Value: AWSALB},
+		{Name: "AWSALBCORS", Value: AWSALBCORS},
+		{Name: shibsessionName, Value: shibsessionValue},
+		{Name: "JSESSIONID", Value: JSESSIONID2},
+	}
+	client.Jar.SetCookies(u, cookies)
+
+	resp, _ := client.Do(req)
+	body, _ := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	r := bytes.NewReader(body)
+	doc, _ := goquery.NewDocumentFromReader(r)
+	doc.Find("tr").Each(func(_ int, s *goquery.Selection) {
+		sec := s.Find("th[headers='subject'] span[class='skip']")
+		if len(sec.Nodes) != 0 {
+			url, _ := s.Find("a").Attr("href")
+			newsMap := map[string]string{
+				"channel": strings.TrimSpace(s.Find("td[headers='channel']").Text()),
+				"subject": sec.Text(),
+				"url":     strings.Replace(url, "&", "&amp;", -1),
+			}
+			newsList = append(newsList, newsMap)
+		}
+	})
+
+	for i, d := range newsList {
+		notification := toast.Notification{
+			AppID:   "Hoppii通知君",
+			Title:   d["channel"],
+			Message: d["subject"],
+			Actions: []toast.Action{
+				{Type: "protocol", Label: "ブラウザで開く", Arguments: d["url"]},
+			},
+		}
+
+		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
+
+		if reflect.DeepEqual(log, sha1[:]) {
+			if i == 0 {
+				// notification := toast.Notification{
+				// 	AppID:   "Hoppii通知君",
+				// 	Title:   "なし",
+				// 	Message: "最新の状態です",
+				// }
+				// notification.Push()
+				fmt.Println("最新の状態です")
+			}
+			break
+		}
+		if i == 0 {
+			file, err := os.Create("log.log")
+			if err != nil {
+				panic(err)
+			}
+			defer file.Close()
+			file.Write(sha1[:])
+		}
+		notification.Push()
+	}
+}
+
+func GetHomeWork(client *http.Client, u *url.URL) {
+	req, _ := http.NewRequest("GET", "https://hoppii.hosei.ac.jp:443/portal/tool/e3158cab-276f-48ca-97f2-83b3196afb4d?panel=Main", nil)
+	cookies := []*http.Cookie{
+		{Name: "AWSALB", Value: AWSALB},
+		{Name: "AWSALBCORS", Value: AWSALBCORS},
+		{Name: shibsessionName, Value: shibsessionValue},
+		{Name: "JSESSIONID", Value: JSESSIONID2},
+	}
+	client.Jar.SetCookies(u, cookies)
+
+	resp, _ := client.Do(req)
+	body, _ := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	r := bytes.NewReader(body)
+	doc, _ := goquery.NewDocumentFromReader(r)
+	doc.Find("tr").Each(func(_ int, s *goquery.Selection) {
+		if len(s.Find("td").Nodes) != 0 {
+			var siteName string
+			var title string
+			var url string
+			var dueDate string
+
+			s.Find("td").Each(func(_ int, ss *goquery.Selection) {
+				name, _ := ss.Attr("headers")
+				if name == "siteName" {
+					siteName = ss.Text()
+				}
+				if name == "title" {
+					title = ss.Text()
+					url, _ = s.Find("a").Attr("href")
+				}
+				if name == "dueDate" {
+					dueDate = ss.Text()
+				}
+
+			})
+			newsMap := map[string]string{
+				"channel": strings.TrimSpace(siteName),
+				"subject": strings.TrimSpace(title),
+				"due":     strings.TrimSpace(dueDate),
+				"url":     strings.Replace(url, "&", "&amp;", -1),
+			}
+			notiList = append(notiList, newsMap)
+		}
+	})
+	for i, d := range notiList {
+		notification := toast.Notification{
+			AppID:   "Hoppii通知君",
+			Title:   d["channel"],
+			Message: d["subject"] + "\n----" + d["due"],
+			Actions: []toast.Action{
+				{Type: "protocol", Label: "ブラウザで開く", Arguments: d["url"]},
+			},
+		}
+
+		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
+
+		if reflect.DeepEqual(log, sha1[:]) {
+			if i == 0 {
+				// notification := toast.Notification{
+				// 	AppID:   "Hoppii通知君",
+				// 	Title:   "なし",
+				// 	Message: "最新の状態です",
+				// }
+				// notification.Push()
+				fmt.Println("最新の状態です")
+			}
+			break
+		}
+		notification.Push()
+	}
+}
 
 func MessageErr(c string) {
 	notification := toast.Notification{
@@ -36,11 +176,26 @@ func MessageErr(c string) {
 	}
 	notification.Push()
 }
-
 func main() {
 	client := &http.Client{}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
+	}
+
+	flag.Parse()
+	if len(flag.Args()) > 1 {
+		MessageErr("引数が多すぎです")
+	}
+	var get func(client *http.Client, u *url.URL)
+	for _, arg := range flag.Args() {
+		switch arg {
+		case "kadai":
+			get = ReadNotification
+		case "home":
+			get = GetHomeWork
+		default:
+			get = ReadNotification
+		}
 	}
 
 	st, err := ioutil.ReadFile("login.txt")
@@ -51,7 +206,7 @@ func main() {
 	StudentNumber := strings.Split(string(st), ",")[0]
 	Password := strings.Split(string(st), ",")[1]
 
-	log, err := ioutil.ReadFile("log.log")
+	log, err = ioutil.ReadFile("log.log")
 	if err != nil {
 		MessageErr("log.log読み込みエラー")
 		panic(err)
@@ -94,6 +249,7 @@ func main() {
 	client.Do(req)
 
 	data := url.Values{"j_username": {StudentNumber}, "j_password": {Password}, "_eventId_proceed": {""}}
+
 	//データを入力してPOSTする、JSESSIONIDとNSC_wt_ena_tijccpmfui_ttmが必要=>SSOのハッシュデータが手に入る
 	req, _ = http.NewRequest("POST", NextUrl,
 		strings.NewReader(data.Encode()),
@@ -159,65 +315,5 @@ func main() {
 	}
 
 	//メインコンテンツにアクセス。AWSALB、AWSALBCORS、shibsessionName、JSESSIONIDが必要
-	req, _ = http.NewRequest("GET", "https://hoppii.hosei.ac.jp:443/portal/tool/474a4523-3b7b-42ac-a461-d8753982d3b6?panel=Main", nil)
-	cookies = []*http.Cookie{
-		{Name: "AWSALB", Value: AWSALB},
-		{Name: "AWSALBCORS", Value: AWSALBCORS},
-		{Name: shibsessionName, Value: shibsessionValue},
-		{Name: "JSESSIONID", Value: JSESSIONID2},
-	}
-	client.Jar.SetCookies(u, cookies)
-
-	resp, _ = client.Do(req)
-	body, _ = ioutil.ReadAll(resp.Body)
-	defer resp.Body.Close()
-	r = bytes.NewReader(body)
-	doc, _ = goquery.NewDocumentFromReader(r)
-	doc.Find("tr").Each(func(_ int, s *goquery.Selection) {
-		sec := s.Find("th[headers='subject'] span[class='skip']")
-		if len(sec.Nodes) != 0 {
-			url, _ := s.Find("a").Attr("href")
-			newsMap := map[string]string{
-				"channel": strings.TrimSpace(s.Find("td[headers='channel']").Text()),
-				"subject": sec.Text(),
-				"url":     strings.Replace(url, "&", "&amp;", -1),
-			}
-			newsList = append(newsList, newsMap)
-		}
-	})
-
-	for i, d := range newsList {
-		notification := toast.Notification{
-			AppID:   "Hoppii通知君",
-			Title:   d["channel"],
-			Message: d["subject"],
-			Actions: []toast.Action{
-				{Type: "protocol", Label: "ブラウザで開く", Arguments: d["url"]},
-			},
-		}
-
-		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
-
-		if reflect.DeepEqual(log, sha1[:]) {
-			if i == 0 {
-				// notification := toast.Notification{
-				// 	AppID:   "Hoppii通知君",
-				// 	Title:   "なし",
-				// 	Message: "最新の状態です",
-				// }
-				// notification.Push()
-				fmt.Println("最新の状態です")
-			}
-			break
-		}
-		if i == 0 {
-			file, err := os.Create("log.log")
-			if err != nil {
-				panic(err)
-			}
-			defer file.Close()
-			file.Write(sha1[:])
-		}
-		notification.Push()
-	}
+	get(client, u)
 }
