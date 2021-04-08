@@ -31,6 +31,8 @@ var newsList []map[string]string
 var notiList []map[string]string
 var log []byte
 
+var funcList []func(client *http.Client, u *url.URL)
+
 func ReadNotification(client *http.Client, u *url.URL) {
 	req, _ := http.NewRequest("GET", "https://hoppii.hosei.ac.jp:443/portal/tool/474a4523-3b7b-42ac-a461-d8753982d3b6?panel=Main", nil)
 	cookies := []*http.Cookie{
@@ -186,15 +188,19 @@ func main() {
 	if len(flag.Args()) > 1 {
 		MessageErr("引数が多すぎです")
 	}
-	var get func(client *http.Client, u *url.URL)
+
+	if len(flag.Args()) == 0 {
+		funcList = append(funcList, GetHomeWork)
+		funcList = append(funcList, ReadNotification)
+	}
 	for _, arg := range flag.Args() {
 		switch arg {
 		case "kadai":
-			get = ReadNotification
+			funcList = append(funcList, GetHomeWork)
 		case "home":
-			get = GetHomeWork
+			funcList = append(funcList, ReadNotification)
 		default:
-			get = ReadNotification
+			funcList = append(funcList, ReadNotification)
 		}
 	}
 
@@ -315,5 +321,8 @@ func main() {
 	}
 
 	//メインコンテンツにアクセス。AWSALB、AWSALBCORS、shibsessionName、JSESSIONIDが必要
-	get(client, u)
+	for _, f := range funcList {
+		f(client, u)
+	}
+
 }
