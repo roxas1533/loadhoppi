@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,8 +13,10 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/Songmu/go-httpdate"
 	"gopkg.in/toast.v1"
 )
 
@@ -29,7 +32,10 @@ var JSESSIONID2 string
 
 var newsList []map[string]string
 var notiList []map[string]string
-var log []byte
+var (
+	log      []byte
+	home_log []byte
+)
 
 var funcList []func(client *http.Client, u *url.URL)
 
@@ -98,6 +104,15 @@ func ReadNotification(client *http.Client, u *url.URL) {
 }
 
 func GetHomeWork(client *http.Client, u *url.URL) {
+	homeHash := make(map[string]string)
+	if len(home_log) != 0 {
+		for _, row := range strings.Split(string(home_log), "\n") {
+			p := strings.Split(string(row), ",")
+			if len(p) > 1 {
+				homeHash[p[0]] = p[1]
+			}
+		}
+	}
 	req, _ := http.NewRequest("GET", "https://hoppii.hosei.ac.jp:443/portal/tool/e3158cab-276f-48ca-97f2-83b3196afb4d?panel=Main", nil)
 	cookies := []*http.Cookie{
 		{Name: "AWSALB", Value: AWSALB},
@@ -153,6 +168,17 @@ func GetHomeWork(client *http.Client, u *url.URL) {
 		}
 
 		sha1 := sha1.Sum([]byte(d["channel"] + d["subject"]))
+		sha1String := hex.EncodeToString(sha1[:])
+		if _, isE := homeHash[sha1String]; isE {
+			homeHash[sha1String] = d["due"]
+			due, _ := httpdate.Str2Time(d["due"], nil)
+			if due.Sub(time.Now()).Hours() < 24 {
+				notification.Push()
+			}
+		} else {
+			homeHash[sha1String] = d["due"]
+			notification.Push()
+		}
 
 		if reflect.DeepEqual(log, sha1[:]) {
 			if i == 0 {
@@ -166,8 +192,17 @@ func GetHomeWork(client *http.Client, u *url.URL) {
 			}
 			break
 		}
-		notification.Push()
+		// notification.Push()
 	}
+	file, err := os.Create("home_log.log")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	for key, val := range homeHash {
+		file.WriteString(key + "," + val + "\n")
+	}
+
 }
 
 func MessageErr(c string) {
@@ -214,8 +249,15 @@ func main() {
 
 	log, err = ioutil.ReadFile("log.log")
 	if err != nil {
-		MessageErr("log.log読み込みエラー")
-		panic(err)
+		fmt.Println("log.logを新規作成")
+		file, _ := os.Create("log.log")
+		file.Close()
+	}
+	home_log, err = ioutil.ReadFile("home_log.log")
+	if err != nil {
+		fmt.Println("home_log.logを新規作成")
+		file, _ := os.Create("home_log.log")
+		file.Close()
 	}
 
 	//スタート、AWSALBとAWSALBCORSが手に入る
