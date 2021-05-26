@@ -172,7 +172,8 @@ func GetHomeWork(client *http.Client, u *url.URL) {
 		if _, isE := homeHash[sha1String]; isE {
 			homeHash[sha1String] = d["due"]
 			due, _ := httpdate.Str2Time(d["due"], nil)
-			if due.Sub(time.Now()).Hours() < 24 {
+			leftTime := due.Sub(time.Now()).Hours()
+			if leftTime < 24 && leftTime > 0 {
 				notification.Push()
 			}
 		} else {
